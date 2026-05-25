@@ -1,4 +1,4 @@
-import streamlit as st
+                import streamlit as st
 import math
 import time
 
@@ -37,7 +37,6 @@ with tab1:
             standwasser_volumen = math.pi * (radius_m ** 2) * wassersaeule_m * 1000
             abpump_volumen = 3 * standwasser_volumen
             
-            # WERT IM GEDÄCHTNIS SPEICHERN FÜR DEN TIMER
             st.session_state.ziel_volumen = abpump_volumen
             
             st.success("✅ Berechnung erfolgreich! Wert wurde für den Timer gespeichert.")
@@ -64,7 +63,6 @@ with tab2:
             zylinder_volumen_m3 = math.pi * (radius_m ** 2) * maechtigkeit_m
             ziel_volumen_l = (zylinder_volumen_m3 * 1.5) * 1000
             
-            # WERT IM GEDÄCHTNIS SPEICHERN FÜR DEN TIMER
             st.session_state.ziel_volumen = ziel_volumen_l
             
             st.success("✅ Berechnung erfolgreich! Wert wurde für den Timer gespeichert.")
@@ -74,29 +72,49 @@ with tab2:
 
 
 # ==========================================
-# WERKZEUG 3: FÖRDERSTROM-UMRECHNER
+# WERKZEUG 3: FÖRDERSTROM-UMRECHNER (AKTUALISIERT)
 # ==========================================
 with tab3:
-    st.subheader("Förderstrom ermitteln")
+    st.subheader("Umrechnung von Pumpenleistung & Messzeit")
     
-    auswahl = st.radio("Gemessener Wert:", ["Liter pro Minute (l/min)", "Liter pro Stunde (l/h)", "Zeit für 1 Liter (s/l)"], key="strom_radio")
+    auswahl = st.radio("Gemessener oder gewünschter Wert:", ["Liter pro Minute (l/min)", "Liter pro Stunde (l/h)", "Zeit für 1 Liter (s/l)"], key="strom_radio")
     
     l_min = 0.0
+    l_h = 0.0
+    sek_pro_liter = 0.0
     
+    # Dynamische Felder & sofortige Berechnung aller drei Werte
     if auswahl == "Liter pro Minute (l/min)":
-        wert = st.number_input("Wert in l/min:", min_value=0.001, value=12.0, step=0.5, key="strom_min")
+        wert = st.number_input("Wert in l/min:", min_value=0.001, value=8.0, step=0.5, key="strom_min")
         l_min = wert
-    elif auswahl == "Liter pro Stunde (l/h)":
-        wert = st.number_input("Wert in l/h:", min_value=0.001, value=720.0, step=10.0, key="strom_h")
-        l_min = wert / 60
-    elif auswahl == "Zeit für 1 Liter (s/l)":
-        wert = st.number_input("Sekunden für 1 Liter:", min_value=0.001, value=5.0, step=0.5, key="strom_s")
-        l_min = 60 / wert
+        l_h = wert * 60
+        sek_pro_liter = 60 / wert
         
-    if st.button("Förderstrom bestätigen", type="primary", key="btn_strom"):
-        # WERT IM GEDÄCHTNIS SPEICHERN FÜR DEN TIMER
+    elif auswahl == "Liter pro Stunde (l/h)":
+        wert = st.number_input("Wert in l/h:", min_value=0.001, value=480.0, step=10.0, key="strom_h")
+        l_h = wert
+        l_min = wert / 60
+        sek_pro_liter = 3600 / wert
+        
+    elif auswahl == "Zeit für 1 Liter (s/l)":
+        wert = st.number_input("Sekunden für 1 Liter:", min_value=0.001, value=7.5, step=0.5, key="strom_s")
+        sek_pro_liter = wert
+        l_min = 60 / wert
+        l_h = 3600 / wert
+        
+    # Sofortige Anzeige der umgerechneten Werte (wie in der ersten Version)
+    st.write("---")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Liter pro Minute", f"{l_min:.2f} l/min")
+    col2.metric("Liter pro Stunde", f"{l_h:.0f} l/h")
+    col3.metric("Zeit für 1 Liter", f"{sek_pro_liter:.2f} s")
+    
+    st.write("---")
+    
+    # Separater Button, um den Wert an den Timer zu schicken
+    if st.button("Förderstrom für den Timer übernehmen", type="primary", key="btn_strom"):
         st.session_state.pumpen_leistung = l_min
-        st.success(f"✅ Förderstrom von {l_min:.2f} l/min wurde für den Timer gespeichert.")
+        st.success(f"✅ Der Förderstrom von {l_min:.2f} l/min wurde erfolgreich für den Timer gespeichert.")
 
 
 # ==========================================
@@ -108,37 +126,31 @@ with tab4:
     vol = st.session_state.ziel_volumen
     flow = st.session_state.pumpen_leistung
     
-    # Prüfen, ob schon Daten berechnet wurden
     if vol > 0 and flow > 0:
         total_minutes = vol / flow
         total_seconds = int(total_minutes * 60)
         
-        st.info(f"**Aktuelle Daten:** Ziel-Volumen: {vol:.1f} L | Förderstrom: {flow:.2f} l/min\n\n**Berechnete Dauer:** {total_minutes:.1f} Minuten")
+        st.info(f"**Aktuelle Daten:** Ziel-Volumen: {vol:.1f} L | Förderstrom: {flow:.2f} l/min\n\n**Berechnete Dauer:** {total_minutes:.2f} Minuten")
         
         if st.button("▶️ Pumpe & Timer starten", type="primary", key="btn_timer"):
             progress_bar = st.progress(0)
             status_text = st.empty()
             
-            # Die Timer-Schleife
             for i in range(total_seconds):
                 verbleibend = total_seconds - i
                 mins, secs = divmod(verbleibend, 60)
                 
-                # Anzeige aktualisieren
                 status_text.markdown(f"### ⏳ {mins:02d}:{secs:02d} verbleibend")
                 progress_bar.progress((i + 1) / total_seconds)
                 
-                # Erinnerung alle 5 Minuten (300 Sekunden)
-                # i > 0 verhindert, dass der Alarm direkt bei Sekunde 0 losgeht
                 if i > 0 and i % 300 == 0:
                     st.toast("🔔 **5 Minuten vergangen!** Bitte Vor-Ort-Parameter messen.", icon="⏱️")
                 
-                time.sleep(1) # 1 Sekunde warten
+                time.sleep(1)
             
-            # Wenn der Timer durch ist
             status_text.markdown("### ✅ Zielvolumen erreicht!")
             st.balloons()
             st.success("Das berechnete Wasservolumen wurde erfolgreich gefördert.")
             
     else:
-        st.warning("⚠️ Bitte berechnen Sie zuerst das Abpumpvolumen (Reiter 1 oder 2) und bestätigen Sie den Förderstrom (Reiter 3).")
+        st.warning("⚠️ Bitte berechnen Sie zuerst das Abpumpvolumen (Reiter 1 oder 2) und übernehmen Sie den Förderstrom (Reiter 3).")
