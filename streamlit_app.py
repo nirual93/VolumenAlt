@@ -321,6 +321,27 @@ with tab4:
                 st.write("---")
                 st.info("💡 **Kopieren:** Nutzen Sie das kleine Symbol oben rechts im grauen Kasten, um das strukturierte Protokoll direkt in Ihre Zwischenablage zu kopieren.")
                 st.code(protokoll_text, language="markdown")
+                                # --- NEU: CSV-DOWNLOAD FÜR EXCEL / LIMS ---
+                st.write("---")
+                st.markdown("### 📥 Daten exportieren")
+                
+                # CSV-String manuell zusammenbauen (Trennzeichen: Semikolon für deutsches Excel)
+                csv_text = "Uhrzeit;Zeit (Min);Wasserstand (m);Temp (°C);pH;LF (µS/cm);Redox (mV);O2 (mg/l)\n"
+                
+                for m in st.session_state.messungen:
+                    csv_text += f"{m['Uhrzeit']};{m['Zeit (Min)']};{m['Wasserstand (m)']};{m['Temp (°C)']};{m['pH']};{m['LF (µS/cm)']};{m['Redox (mV)']};{m['O2 (mg/l)']}\n"
+                
+                # Dateinamen generieren (z.B. Protokoll_GW1.csv)
+                dateiname = f"Protokoll_{bezeichnung.replace(' ', '_')}.csv" if bezeichnung != "Nicht angegeben" else "Protokoll_Grundwasser.csv"
+                
+                st.download_button(
+                    label="📄 Tabelle als CSV-Datei herunterladen (für Excel/Mail-Anhang)",
+                    data=csv_text,
+                    file_name=dateiname,
+                    mime="text/csv",
+                    type="primary"
+                )
+                
             
             # --- RESET-BUTTON ---
             st.write("---")
