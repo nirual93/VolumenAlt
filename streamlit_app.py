@@ -1,19 +1,45 @@
 import streamlit as st
 import math
 import time
+import json
 
-# --- SEITEN-SETUP & GEDÄCHTNIS (SESSION STATE) ---
+# --- SEITEN-SETUP ---
 st.set_page_config(page_title="Feld-Assistent GW", page_icon="🛠️", layout="centered")
 
-# Gedächtnis-Variablen initialisieren
+# =========================================================================
+# CRASH-SCHUTZ: DATEN AUTOMATISCH AUS DER URL WIEDERHERSTELLEN
+# =========================================================================
 if 'ziel_volumen' not in st.session_state:
-    st.session_state.ziel_volumen = 0.0
+    val = st.query_params.get('ziel_volumen', '0.0')
+    st.session_state.ziel_volumen = float(val) if val else 0.0
+
 if 'pumpen_leistung' not in st.session_state:
-    st.session_state.pumpen_leistung = 0.0
-if 'messungen' not in st.session_state:
-    st.session_state.messungen = []
+    val = st.query_params.get('pumpen_leistung', '0.0')
+    st.session_state.pumpen_leistung = float(val) if val else 0.0
+
 if 'pumpen_start' not in st.session_state:
-    st.session_state.pumpen_start = None
+    val = st.query_params.get('pumpen_start', '')
+    st.session_state.pumpen_start = float(val) if (val and val != 'None') else None
+
+if 'messungen' not in st.session_state:
+    val = st.query_params.get('messungen', '[]')
+    try:
+        st.session_state.messungen = json.loads(val) if val else []
+    except:
+        st.session_state.messungen = []
+
+if 'messstelle' not in st.session_state:
+    st.session_state.messstelle = st.query_params.get('messstelle', '')
+
+if 'din_tiefe' not in st.session_state:
+    val = st.query_params.get('din_tiefe', '22.5')
+    st.session_state.din_tiefe = float(val) if val else 22.5
+
+if 'din_rws' not in st.session_state:
+    val = st.query_params.get('din_rws', '14.2')
+    st.session_state.din_rws = float(val) if val else 14.2
+
+# =========================================================================
 
 st.title("🛠️ Grundwasser Feld-Assistent")
 st.write("Wählen Sie das benötigte Werkzeug über die Reiter aus:")
@@ -28,8 +54,8 @@ with tab1:
     st.subheader("Rohrvolumen nach DIN 38402-13")
     
     durchmesser_mm = st.number_input("Rohr-Durchmesser in mm", value=100.0, step=10.0, key="din_dn")
-    tiefe_m = st.number_input("Gesamttiefe in m", value=22.5, step=0.1, key="din_tiefe")
-    ruhewasser_m = st.number_input("Ruhewasserstand in m", value=14.2, step=0.1, key="din_rws")
+    tiefe_m = st.number_input("Gesamttiefe in m", value=st.session_state.din_tiefe, step=0.1)
+    ruhewasser_m = st.number_input("Ruhewasserstand in m", value=st.session_state.din_rws, step=0.1)
     
     if st.button("DIN-Volumen berechnen", type="primary", key="btn_din"):
         radius_m = (durchmesser_mm / 2) / 1000
@@ -40,9 +66,17 @@ with tab1:
         else:
             standwasser_volumen = math.pi * (radius_m ** 2) * wassersaeule_m * 1000
             abpump_volumen = 3 * standwasser_volumen
+            
+            # In Speicher UND URL sichern
+            st.session_state.din_tiefe = tiefe_m
+            st.session_state.din_rws = ruhewasser_m
             st.session_state.ziel_volumen = abpump_volumen
             
-            st.success("✅ Berechnung erfolgreich! Wert wurde für den Timer gespeichert.")
+            st.query_params['din_tiefe'] = str(tiefe_m)
+            st.query_params['din_rws'] = str(ruhewasser_m)
+            st.query_params['ziel_volumen'] = str(abpump_volumen)
+            
+            st.success("✅ Berechnung erfolgreich! Werte wurden im Hintergrund gespeichert.")
             col1, col2, col3 = st.columns(3)
             col1.metric("Wassersäule", f"{wassersaeule_m:.2f} m")
             col2.metric("1-fach Volumen", f"{standwasser_volumen:.1f} L")
@@ -65,7 +99,10 @@ with tab2:
             radius_m = durchmesser_m / 2
             zylinder_volumen_m3 = math.pi * (radius_m ** 2) * maechtigkeit_m
             ziel_volumen_l = (zylinder_volumen_m3 * 1.5) * 1000
+            
+            # In Speicher UND URL sichern
             st.session_state.ziel_volumen = ziel_volumen_l
+            st.query_params['ziel_volumen'] = str(ziel_volumen_l)
             
             st.success("✅ Berechnung erfolgreich! Wert wurde für den Timer gespeichert.")
             col1, col2 = st.columns(2)
@@ -107,6 +144,7 @@ with tab3:
     st.write("---")
     if st.button("Förderstrom für den Timer übernehmen", type="primary", key="btn_strom"):
         st.session_state.pumpen_leistung = l_min
+        st.query_params['pumpen_leistung'] = str(l_min)
         st.success(f"✅ Förderstrom von {l_min:.2f} l/min gespeichert.")
 
 
@@ -116,6 +154,13 @@ with tab3:
 with tab4:
     st.subheader("⏳ Protokoll & Abpump-Überwachung")
     
+    # NEU: Eingabefeld für die Messstellenbezeichnung direkt oben im Reiter
+    messstelle_input = st.text_input("Bezeichnung der Messstelle:", value=st.session_state.messstelle)
+    if messstelle_input != st.session_state.messstelle:
+        st.session_state.messstelle = messstelle_input
+        st.query_params['messstelle'] = messstelle_input
+        st.rerun()
+
     vol = st.session_state.ziel_volumen
     flow = st.session_state.pumpen_leistung
     
@@ -128,17 +173,19 @@ with tab4:
         # STATUS: PUMPE NOCH NICHT GESTARTET
         if st.session_state.pumpen_start is None:
             if st.button("▶️ Pumpe starten & Protokoll beginnen", type="primary"):
-                st.session_state.pumpen_start = time.time()
-                st.session_state.messungen = [] # Löscht alte Protokolle
-                st.rerun() # Aktualisiert die Seite sofort
+                jetzt = time.time()
+                st.session_state.pumpen_start = jetzt
+                st.session_state.messungen = [] 
+                
+                st.query_params['pumpen_start'] = str(jetzt)
+                st.query_params['messungen'] = "[]"
+                st.rerun() 
         
         # STATUS: PUMPE LÄUFT
         else:
-            # Berechne vergangene und verbleibende Zeiten
             elapsed_seconds = int(time.time() - st.session_state.pumpen_start)
             remaining_total = max(0, total_seconds - elapsed_seconds)
             
-            # 5-Minuten-Intervall-Logik (300 Sekunden)
             elapsed_in_cycle = elapsed_seconds % 300
             remaining_in_cycle = 300 - elapsed_in_cycle
             
@@ -149,14 +196,12 @@ with tab4:
                 st.progress(min(1.0, elapsed_seconds / total_seconds))
             
             with col_t2:
-                # Optische Warnung bei Ablauf der 5 Minuten
                 if remaining_in_cycle < 15 or elapsed_in_cycle < 15:
                     st.error(f"🔔 JETZT MESSEN! ({remaining_in_cycle // 60:02d}:{remaining_in_cycle % 60:02d} Min)")
                 else:
                     st.metric("Nächste Parameter-Messung in", f"{remaining_in_cycle // 60:02d}:{remaining_in_cycle % 60:02d} Min")
                 st.progress(min(1.0, elapsed_in_cycle / 300))
                 
-            # Manueller Button, um die Anzeige zu aktualisieren (passiert auch automatisch bei Eingaben)
             if st.button("🔄 Timer-Anzeige aktualisieren"):
                 st.rerun()
             
@@ -165,25 +210,27 @@ with tab4:
             # --- EINGABEMASKE FÜR VOR-ORT-PARAMETER ---
             st.markdown("### 📝 Parameter erfassen")
             
-            # Drei Spalten für ein kompaktes Layout
             col_p1, col_p2, col_p3 = st.columns(3)
             with col_p1:
+                water_level = st.number_input("Wasserstand (m)", value=14.50, step=0.01)
                 temp = st.number_input("Temp. (°C)", value=11.0, step=0.1)
-                ph = st.number_input("pH-Wert", value=7.00, step=0.01)
             with col_p2:
+                ph = st.number_input("pH-Wert", value=7.00, step=0.01)
                 lf = st.number_input("LF (µS/cm)", value=500.0, step=1.0)
-                redox = st.number_input("Redox (mV)", value=150.0, step=1.0)
             with col_p3:
+                redox = st.number_input("Redox (mV)", value=150.0, step=1.0)
                 o2 = st.number_input("Sauerstoff (mg/l)", value=5.0, step=0.1)
                 
             # Speichern-Button
             if st.button("💾 Werte zum Protokoll hinzufügen", type="primary"):
-                # Aktuellen Zeitstempel für die Messung formatieren
+                # NEU: Aktuelle echte Uhrzeit erfassen
+                uhrzeit_jetzt = time.strftime("%H:%M:%S")
                 zeitstempel = f"{elapsed_seconds // 60:02d}:{elapsed_seconds % 60:02d}"
                 
-                # Als Wörterbuch (Dictionary) in der Liste speichern
                 neue_messung = {
+                    "Uhrzeit": uhrzeit_jetzt,        # NEU: Vorne angehängt
                     "Zeit (Min)": zeitstempel,
+                    "Wasserstand (m)": water_level,
                     "Temp (°C)": temp,
                     "pH": ph,
                     "LF (µS/cm)": lf,
@@ -191,35 +238,103 @@ with tab4:
                     "O2 (mg/l)": o2
                 }
                 st.session_state.messungen.append(neue_messung)
-                st.success(f"Messung bei Minute {zeitstempel} erfolgreich gespeichert!")
+                st.query_params['messungen'] = json.dumps(st.session_state.messungen)
+                
+                st.success(f"Messung um {uhrzeit_jetzt} (Minute {zeitstempel}) erfolgreich gespeichert!")
+                st.rerun()
                 
             # --- PROTOKOLL & EXPORT ---
             if len(st.session_state.messungen) > 0:
                 st.write("---")
                 st.markdown("### 📋 Ihr digitales Messprotokoll")
                 
-                # Zeigt die Daten zur Kontrolle als saubere Tabelle an
-                st.dataframe(st.session_state.messungen)
+                tabellen_daten = list(st.session_state.messungen)
                 
-                # --- EXPORT FÜR DIE ZWISCHENABLAGE BAUEN ---
-                protokoll_text = "Protokoll Vor-Ort-Parameter (Grundwasser)\n"
-                protokoll_text += "="*45 + "\n"
-                protokoll_text += f"Ziel-Volumen:\t{vol:.1f} L\n"
-                protokoll_text += f"Förderstrom:\t{flow:.2f} l/min\n"
-                protokoll_text += "-"*45 + "\n"
-                protokoll_text += "Zeit\tTemp\tpH\tLF\tRedox\tO2\n"
+                if len(st.session_state.messungen) >= 2:
+                    m_letzte = st.session_state.messungen[-1]
+                    m_vorletzte = st.session_state.messungen[-2]
+                    
+                    def prozent_diff(neu, alt):
+                        if alt == 0: return 0.0
+                        return ((neu - alt) / alt) * 100
+                    
+                    abweichung_zeile = {
+                        "Uhrzeit": "Δ Vorwert",
+                        "Zeit (Min)": "-",
+                        "Wasserstand (m)": f"{prozent_diff(m_letzte['Wasserstand (m)'], m_vorletzte['Wasserstand (m)']):+.1f}%",
+                        "Temp (°C)": f"{prozent_diff(m_letzte['Temp (°C)'], m_vorletzte['Temp (°C)']):+.1f}%",
+                        "pH": f"{prozent_diff(m_letzte['pH'], m_vorletzte['pH']):+.1f}%",
+                        "LF (µS/cm)": f"{prozent_diff(m_letzte['LF (µS/cm)'], m_vorletzte['LF (µS/cm)']):+.1f}%",
+                        "Redox (mV)": f"{prozent_diff(m_letzte['Redox (mV)'], m_vorletzte['Redox (mV)']):+.1f}%",
+                        "O2 (mg/l)": f"{prozent_diff(m_letzte['O2 (mg/l)'], m_vorletzte['O2 (mg/l)']):+.1f}%"
+                    }
+                    tabellen_daten = tabellen_daten + [abweichung_zeile]
                 
-                # Alle gespeicherten Messungen als Text-Zeilen anfügen
+                st.dataframe(tabellen_daten)
+                
+                # --- NEU: STRUKTURIERTEN EXPORT-STRING BAUEN (FIXED WIDTH) ---
+                bezeichnung = st.session_state.messstelle if st.session_state.messstelle else "Nicht angegeben"
+                
+                protokoll_text = f"=== MESSSTELLEN-PROTOKOLL: {bezeichnung} ===\n"
+                protokoll_text += "="*88 + "\n"
+                protokoll_text += f"Ruhewasserstand:       {st.session_state.din_rws:.2f} m\n"
+                protokoll_text += f"Gesamttiefe:           {st.session_state.din_tiefe:.2f} m\n"
+                protokoll_text += f"Zu pumpendes Volumen:  {vol:.1f} L\n"
+                protokoll_text += f"Förderstrom:           {flow:.2f} l/min\n"
+                protokoll_text += f"Berechnete Förderzeit: {total_minutes:.1f} Min.\n"
+                protokoll_text += "-"*88 + "\n\n"
+                
+                # Formatierungsmaske für exakte Spaltenbreiten (verhindert jegliches Verrutschen)
+                spalten_layout = "{:<12} {:<12} {:<14} {:<12} {:<8} {:<13} {:<12} {:<10}\n"
+                
+                # Tabellenkopf schreiben
+                protokoll_text += spalten_layout.format("Uhrzeit", "Zeit (Min)", "W-Stand (m)", "Temp (°C)", "pH", "LF (µS/cm)", "Redox (mV)", "O2 (mg/l)")
+                protokoll_text += "-"*88 + "\n"
+                
+                # Datenzeilen schreiben
                 for m in st.session_state.messungen:
-                    protokoll_text += f"{m['Zeit (Min)']}\t{m['Temp (°C)']}\t{m['pH']}\t{m['LF (µS/cm)']}\t{m['Redox (mV)']}\t{m['O2 (mg/l)']}\n"
+                    protokoll_text += spalten_layout.format(
+                        m['Uhrzeit'],
+                        m['Zeit (Min)'],
+                        f"{m['Wasserstand (m)']:.2f}",
+                        f"{m['Temp (°C)']:.1f}",
+                        f"{m['pH']:.2f}",
+                        f"{m['LF (µS/cm)']:.0f}",
+                        f"{m['Redox (mV)']:.0f}",
+                        f"{m['O2 (mg/l)']:.1f}"
+                    )
+                
+                # Abweichungszeile formatiert anhängen
+                if len(st.session_state.messungen) >= 2:
+                    protokoll_text += "-"*88 + "\n"
+                    protokoll_text += spalten_layout.format(
+                        "Δ Vorwert",
+                        "-",
+                        abweichung_zeile['Wasserstand (m)'],
+                        abweichung_zeile['Temp (°C)'],
+                        abweichung_zeile['pH'],
+                        abweichung_zeile['LF (µS/cm)'],
+                        abweichung_zeile['Redox (mV)'],
+                        abweichung_zeile['O2 (mg/l)']
+                    )
                 
                 st.write("---")
-                st.info("💡 **Tipp für den Export:** Klicken Sie in dem grauen Kasten unten auf das kleine **Kopieren-Symbol in der oberen rechten Ecke**. Danach können Sie die Werte per 'Einfügen' direkt in eine E-Mail, WhatsApp oder Ihr LIMS-System übertragen.")
-                
-                # Das st.code Element erzeugt automatisch den "Copy to Clipboard"-Button
+                st.info("💡 **Kopieren:** Nutzen Sie das kleine Symbol oben rechts im grauen Kasten, um das strukturierte Protokoll direkt in Ihre Zwischenablage zu kopieren.")
                 st.code(protokoll_text, language="markdown")
+            
+            # --- RESET-BUTTON ---
+            st.write("---")
+            if st.button("🗑️ Alles zurücksetzen (Neues Bohrloch)", type="secondary"):
+                st.session_state.ziel_volumen = 0.0
+                st.session_state.pumpen_leistung = 0.0
+                st.session_state.pumpen_start = None
+                st.session_state.messungen = []
+                st.session_state.messstelle = ""
+                st.session_state.din_tiefe = 22.5
+                st.session_state.din_rws = 14.2
+                st.query_params.clear()
+                st.rerun()
                 
-            # Abschlussmeldung
             if remaining_total == 0:
                 st.balloons()
                 st.success("🎉 Das berechnete Zielvolumen wurde vollständig abgepumpt!")
